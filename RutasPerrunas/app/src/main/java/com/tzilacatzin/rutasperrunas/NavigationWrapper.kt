@@ -1,11 +1,14 @@
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.tzilacatzin.rutasperrunas.screen.homedueño.HomeDueñoScreen
 import com.tzilacatzin.rutasperrunas.screen.homepaseador.HomePaseadorScreen
+import com.tzilacatzin.rutasperrunas.screen.MapaPaseoScreen
 
 // Importaciones de las pantallas que necesitas
 @Composable
@@ -57,7 +60,27 @@ fun NavigationWrapper(
             )
         }
         composable("homePaseador") {
-            HomePaseadorScreen()
+            HomePaseadorScreen(
+                onNavegarAlMapa = { paseoId ->
+                    // Navegamos pasando el ID del paseo
+                    navHostController.navigate("mapaPaseo/$paseoId")
+                }
+            )
+        }
+
+// Nueva ruta para el mapa con argumento
+        composable(
+            route = "mapaPaseo/{paseoId}",
+            arguments = listOf(navArgument("paseoId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val paseoId = backStackEntry.arguments?.getString("paseoId") ?: ""
+            MapaPaseoScreen(
+                paseoId = paseoId,
+                onPaseoFinalizado = {
+                    navHostController.popBackStack() // Regresa a la lista al terminar
+                }
+            )
         }
     }
+
 }

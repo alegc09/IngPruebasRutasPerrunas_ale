@@ -3,10 +3,13 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
+import com.tzilacatzin.rutasperrunas.model.Paseo
+import com.tzilacatzin.rutasperrunas.screen.homedueño.Mascota
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import java.util.UUID
 
 class AgregarMascotaViewModel : ViewModel() {
     private val auth = Firebase.auth
@@ -33,7 +36,6 @@ class AgregarMascotaViewModel : ViewModel() {
     fun onRazaChange(raza: String) {
         _raza.value = raza
     }
-
     fun onEdadChange(edad: String) {
         // Permitir solo números en el campo de edad
         if (edad.all { it.isDigit() }) {

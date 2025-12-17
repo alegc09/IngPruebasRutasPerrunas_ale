@@ -1,6 +1,10 @@
 package com.tzilacatzin.rutasperrunas.screen.homedueño
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,16 +21,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.google.android.gms.location.LocationServices
 import com.google.firebase.auth.FirebaseAuth
-// Importa los colores que sí existen en tu archivo Color.kt
+import com.tzilacatzin.rutasperrunas.model.Paseo
 import com.tzilacatzin.rutasperrunas.ui.theme.AzulClaro
 import com.tzilacatzin.rutasperrunas.ui.theme.Blanco
 import com.tzilacatzin.rutasperrunas.ui.theme.Negro
@@ -48,7 +55,27 @@ fun HomeDueñoScreen(
     val isLoading by mascotaViewModel.isLoading.collectAsStateWithLifecycle()
     val metodoDePago by mascotaViewModel.metodoDePago.collectAsStateWithLifecycle()
     val mostrarDialogo by mascotaViewModel.mostrarDialogoPago.collectAsStateWithLifecycle()
+
+    // OBSERVAMOS SI HAY PASEO ACTIVO
+    val paseoActivo by mascotaViewModel.paseoActivo.collectAsStateWithLifecycle()
+
     var mascotasSeleccionadas by remember { mutableStateOf(setOf<String>()) }
+
+    // 1. Preparamos el cliente de ubicación
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+
+    // 2. Preparamos el lanzador de permisos
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) ||
+                permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false)
+        if (granted) {
+            Toast.makeText(context, "Permiso concedido, vuelve a dar clic", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Se requiere permiso de ubicación para pasear", Toast.LENGTH_LONG).show()
+        }
+    }
 
     // --- MANEJO DEL DIÁLOGO ---
     if (mostrarDialogo) {
@@ -98,7 +125,6 @@ fun HomeDueñoScreen(
                         text = { Text("Métodos de Pago", color = Negro) },
                         onClick = {
                             menuExpandido = false
-                            // Acción: Abrir diálogo de pago
                             mascotaViewModel.onAbrirDialogoPago()
                         }
                     )
@@ -113,69 +139,138 @@ fun HomeDueñoScreen(
                 }
             }
 
-            if (isLoading) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = AzulClaro)
-                }
+            // --- LÓGICA DE INTERFAZ: ¿HAY PASEO ACTIVO? ---
+            if (paseoActivo != null) {
+                // CASO A: SI HAY PASEO, MOSTRAMOS LA INFORMACIÓN Y EL CÓDIGO
+                MuestraInfoPaseoActivo(paseo = paseoActivo!!)
+
             } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(mascotas, key = { it.id }) { mascota ->
-                        MascotaItem(
-                            mascota = mascota,
-                            estaSeleccionado = mascota.id in mascotasSeleccionadas,
-                            onCheckedChange = { seleccionado ->
-                                mascotasSeleccionadas = if (seleccionado) {
-                                    mascotasSeleccionadas + mascota.id
-                                } else {
-                                    mascotasSeleccionadas - mascota.id
+                // CASO B: NO HAY PASEO, MOSTRAMOS LA LISTA Y BOTONES
+                if (isLoading) {
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = AzulClaro)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(mascotas, key = { it.id }) { mascota ->
+                            MascotaItem(
+                                mascota = mascota,
+                                estaSeleccionado = mascota.id in mascotasSeleccionadas,
+                                onCheckedChange = { seleccionado ->
+                                    mascotasSeleccionadas = if (seleccionado) {
+                                        mascotasSeleccionadas + mascota.id
+                                    } else {
+                                        mascotasSeleccionadas - mascota.id
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-            Button(
-                onClick = { NavigationToAgregarMascota() },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = AzulClaro)
-            ) {
-                Text(text = "Agregar Perro", fontSize = 16.sp, color = Negro)
-            }
+                Button(
+                    onClick = { NavigationToAgregarMascota() },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AzulClaro)
+                ) {
+                    Text(text = "Agregar Perro", fontSize = 16.sp, color = Negro)
+                }
 
-            Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-            Button(
-                onClick = {
-                    // --- LÓGICA CONDICIONAL PARA PASEAR ---
-                    if (metodoDePago.isNullOrBlank()) {
-                        // Si no hay método de pago, abre el diálogo
-                        mascotaViewModel.onAbrirDialogoPago()
-                        Toast.makeText(context, "Por favor, agrega un método de pago para continuar", Toast.LENGTH_LONG).show()
-                    } else {
-                        // Si ya hay método de pago, procede con la lógica del paseo
-                        // TODO: Lógica para iniciar paseo con perros seleccionados
-                        Toast.makeText(context, "Iniciando paseo...", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = AzulClaro),
-                enabled = mascotasSeleccionadas.isNotEmpty()
-            ) {
-                Text(text = "Pasear Perro", fontSize = 16.sp, color = Negro)
+                Button(
+                    onClick = {
+                        if (metodoDePago.isNullOrBlank()) {
+                            mascotaViewModel.onAbrirDialogoPago()
+                            Toast.makeText(context, "Agrega método de pago", Toast.LENGTH_LONG).show()
+                        } else {
+                            // VERIFICAR PERMISOS
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                                    if (location != null) {
+                                        val perrosAEnvia = mascotas.filter { it.id in mascotasSeleccionadas }
+                                        mascotaViewModel.solicitarPaseo(
+                                            listaMascotasSeleccionadas = perrosAEnvia,
+                                            latitud = location.latitude,
+                                            longitud = location.longitude,
+                                            onSuccess = {
+                                                Toast.makeText(context, "¡Paseo Solicitado!", Toast.LENGTH_LONG).show()
+                                                mascotasSeleccionadas = emptySet()
+                                            },
+                                            onError = { error -> Toast.makeText(context, error, Toast.LENGTH_LONG).show() }
+                                        )
+                                    } else {
+                                        Toast.makeText(context, "Enciende tu GPS e intenta de nuevo", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            } else {
+                                permissionLauncher.launch(arrayOf(
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION
+                                ))
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AzulClaro),
+                    enabled = mascotasSeleccionadas.isNotEmpty()
+                ) {
+                    Text(text = "Pasear Perro", fontSize = 16.sp, color = Negro)
+                }
             }
         }
     }
 }
 
-// --- NUEVO COMPOSABLE PARA EL DIÁLOGO ---
+// --- NUEVO COMPOSABLE: TARJETA DE PASEO ACTIVO ---
+@Composable
+fun MuestraInfoPaseoActivo(paseo: Paseo) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(top = 20.dp),
+        elevation = CardDefaults.cardElevation(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Blanco)
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("🐶 Paseo en Curso", style = MaterialTheme.typography.headlineSmall, color = VerdeOscuro)
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text("Estado actual:", color = Color.Gray)
+            Text(paseo.estado, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // LÓGICA DEL CÓDIGO
+            if (paseo.estado == "EN_PASEO" || paseo.estado == "ACEPTADO") {
+                Text("Entrégale este código al paseador al finalizar:", textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = paseo.codigoFin,
+                    style = MaterialTheme.typography.displayMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = AzulClaro,
+                    letterSpacing = 4.sp
+                )
+            } else if (paseo.estado == "SOLICITADO") {
+                CircularProgressIndicator(color = VerdeOscuro)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Buscando paseador cercano...", fontStyle = FontStyle.Italic)
+            }
+        }
+    }
+}
+
+// --- DIÁLOGOS Y ELEMENTOS DE UI ---
 
 @Composable
 fun DialogoMetodoPago(
@@ -233,7 +328,7 @@ fun DialogoMetodoPago(
                             onClick = {
                                 viewModel.guardarMetodoDePago(onSuccess = onDismiss)
                             },
-                            enabled = numeroTarjeta.length == 16, // Solo se activa si el número es válido
+                            enabled = numeroTarjeta.length == 16,
                             colors = ButtonDefaults.buttonColors(containerColor = AzulClaro)
                         ) {
                             Text("Guardar", color = Negro)

@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
+import com.tzilacatzin.rutasperrunas.model.Paseo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+
 
 // Modelo de datos para la mascota
 data class Mascota(
@@ -44,10 +46,16 @@ class MascotaViewModel : ViewModel() {
     private val _isSavingPayment = MutableStateFlow(false)
     val isSavingPayment = _isSavingPayment.asStateFlow()
 
+    // --- NUEVO: ESTADO PARA EL PASEO ACTIVO ---
+    private val _paseoActivo = MutableStateFlow<Paseo?>(null)
+    val paseoActivo = _paseoActivo.asStateFlow()
+
 
     init {
         // Cargar todos los datos necesarios al iniciar
         cargarDatosDelDueño()
+        // Empezamos a escuchar si hay paseos activos
+        escucharPaseoActivo()
     }
 
     private fun cargarDatosDelDueño() {
@@ -91,7 +99,65 @@ class MascotaViewModel : ViewModel() {
         }
     }
 
-    // --- NUEVOS MÉTODOS PARA GESTIONAR EL DIÁLOGO ---
+    // --- NUEVA FUNCIÓN: Escuchar paseos activos ---
+    private fun escucharPaseoActivo() {
+        if (userId == null) return
+
+        db.collection("paseos")
+            .whereEqualTo("idDuenio", userId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) return@addSnapshotListener
+
+                if (snapshot != null && !snapshot.isEmpty) {
+                    val listaPaseos = snapshot.documents.mapNotNull { doc ->
+                        val p = doc.toObject(Paseo::class.java)
+                        p?.id = doc.id
+                        p
+                    }
+                    // Buscamos uno que NO esté finalizado
+                    val enCurso = listaPaseos.firstOrNull { it.estado != "FINALIZADO" }
+                    _paseoActivo.value = enCurso
+                } else {
+                    _paseoActivo.value = null
+                }
+            }
+    }
+
+    fun solicitarPaseo(
+        listaMascotasSeleccionadas: List<Mascota>,
+        latitud: Double,
+        longitud: Double,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            onError("No hay sesión activa")
+            return
+        }
+
+        val codigoSecreto = (1000..9999).random().toString()
+        val nombres = listaMascotasSeleccionadas.map { it.nombre }
+        val costo = nombres.size * 50.0
+
+        val nuevoPaseo = Paseo(
+            idDuenio = userId,
+            nombresMascotas = nombres,
+            estado = "SOLICITADO",
+            codigoFin = codigoSecreto,
+            costoTotal = costo,
+            latitud = latitud,
+            longitud = longitud
+        )
+
+        Firebase.firestore.collection("paseos")
+            .add(nuevoPaseo)
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener { e -> onError(e.message ?: "Error al solicitar") }
+    }
+
+
+    // --- MÉTODOS PARA GESTIONAR EL DIÁLOGO DE PAGO ---
 
     fun onNumeroTarjetaChange(numero: String) {
         // Permitir solo números y un máximo de 16 dígitos
@@ -102,17 +168,15 @@ class MascotaViewModel : ViewModel() {
 
     fun guardarMetodoDePago(onSuccess: () -> Unit) {
         if (userId == null || _numeroTarjetaInput.value.length != 16) {
-            // Podrías añadir un callback de error aquí si quieres
             return
         }
         viewModelScope.launch {
             _isSavingPayment.value = true
             try {
-                // Guarda o actualiza el campo 'metodoDePago' en el documento del usuario
                 db.collection("users").document(userId!!)
                     .set(mapOf("metodoDePago" to _numeroTarjetaInput.value), com.google.firebase.firestore.SetOptions.merge())
                     .await()
-                _metodoDePago.value = _numeroTarjetaInput.value // Actualiza el estado local
+                _metodoDePago.value = _numeroTarjetaInput.value
                 onSuccess()
             } catch (e: Exception) {
                 println("Error al guardar método de pago: ${e.message}")
@@ -123,7 +187,6 @@ class MascotaViewModel : ViewModel() {
     }
 
     fun onAbrirDialogoPago() {
-        // Asegura que el texto del diálogo esté actualizado con la info más reciente
         _numeroTarjetaInput.value = _metodoDePago.value ?: ""
         _mostrarDialogoPago.value = true
     }
