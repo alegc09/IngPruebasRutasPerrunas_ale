@@ -44,6 +44,10 @@ android {
 }
 
 dependencies {
+    implementation("androidx.compose.material:material-icons-extended") // Para más iconos
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0") // Para ViewModel en Compose
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0") // Para observar estados como collectAsStateWithLifecycle
+
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.crashlytics)
     implementation(libs.firebase.auth)
