@@ -3,6 +3,7 @@ package com.tzilacatzin.rutasperrunas.screen.homedueño
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.ktx.auth
+import com.google.firebase.firestore.ListenerRegistration // Importante para manejar el listener
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import com.tzilacatzin.rutasperrunas.model.Paseo
@@ -12,7 +13,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
-
 // Modelo de datos para la mascota
 data class Mascota(
     val id: String = "",
@@ -20,7 +20,6 @@ data class Mascota(
     val raza: String = ""
 )
 
-// ViewModel para manejar la lógica de la pantalla
 class MascotaViewModel : ViewModel() {
     private val db = Firebase.firestore
     private val auth = Firebase.auth
@@ -33,7 +32,7 @@ class MascotaViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
 
-    // --- NUEVOS ESTADOS PARA EL MÉTODO DE PAGO ---
+    // --- Estados Pagos ---
     private val _metodoDePago = MutableStateFlow<String?>(null)
     val metodoDePago: StateFlow<String?> = _metodoDePago
 
@@ -46,25 +45,29 @@ class MascotaViewModel : ViewModel() {
     private val _isSavingPayment = MutableStateFlow(false)
     val isSavingPayment = _isSavingPayment.asStateFlow()
 
-    // --- NUEVO: ESTADO PARA EL PASEO ACTIVO ---
+    // --- Estado Paseo Activo ---
     private val _paseoActivo = MutableStateFlow<Paseo?>(null)
     val paseoActivo = _paseoActivo.asStateFlow()
 
+    // Variable para guardar el registro del listener y limpiarlo si hace falta
+    private var mascotasListener: ListenerRegistration? = null
 
     init {
-        // Cargar todos los datos necesarios al iniciar
+        // Cargar datos al iniciar
         cargarDatosDelDueño()
-        // Empezamos a escuchar si hay paseos activos
         escucharPaseoActivo()
     }
 
     private fun cargarDatosDelDueño() {
         if (userId == null) return
+
+        // 1. CAMBIO AQUÍ: Llamamos a la escucha en tiempo real en lugar de carga única
+        escucharMascotasEnTiempoReal()
+
+        // Cargar lo demás (Pagos)
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                // Ejecuta ambas cargas en paralelo para más eficiencia
-                cargarMascotas()
                 cargarMetodoDePago()
             } finally {
                 _isLoading.value = false
@@ -72,26 +75,42 @@ class MascotaViewModel : ViewModel() {
         }
     }
 
-    private suspend fun cargarMascotas() {
-        try {
-            val snapshot = db.collection("users").document(userId!!)
-                .collection("mascotas").get().await()
-            _mascotas.value = snapshot.documents.mapNotNull { doc ->
-                doc.toObject(Mascota::class.java)?.copy(id = doc.id)
+    // --- ESTA ES LA FUNCIÓN NUEVA CORREGIDA ---
+    private fun escucharMascotasEnTiempoReal() {
+        if (userId == null) return
+
+        // Usamos addSnapshotListener en lugar de get().await()
+        mascotasListener = db.collection("users").document(userId!!)
+            .collection("mascotas")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    println("Error al escuchar mascotas: ${error.message}")
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null) {
+                    // Mapeamos los documentos cada vez que cambien en la base de datos
+                    val lista = snapshot.documents.mapNotNull { doc ->
+                        doc.toObject(Mascota::class.java)?.copy(id = doc.id)
+                    }
+                    _mascotas.value = lista
+                }
             }
-        } catch (e: Exception) {
-            println("Error al cargar mascotas: ${e.message}")
-            _mascotas.value = emptyList()
-        }
     }
 
-    // Carga el método de pago desde el documento del usuario
+    // (Asegúrate de limpiar el listener cuando el ViewModel muera para no gastar recursos)
+    override fun onCleared() {
+        super.onCleared()
+        mascotasListener?.remove()
+    }
+
+    // ... (El resto de tus funciones: cargarMetodoDePago, solicitarPaseo, etc. se quedan IGUAL) ...
+
     private suspend fun cargarMetodoDePago() {
         try {
             val document = db.collection("users").document(userId!!).get().await()
             val tarjeta = document.getString("metodoDePago")
             _metodoDePago.value = tarjeta
-            // Pre-llena el campo de texto del diálogo si ya existe una tarjeta
             _numeroTarjetaInput.value = tarjeta ?: ""
         } catch (e: Exception) {
             println("Error al cargar método de pago: ${e.message}")
@@ -99,7 +118,6 @@ class MascotaViewModel : ViewModel() {
         }
     }
 
-    // --- NUEVA FUNCIÓN: Escuchar paseos activos ---
     private fun escucharPaseoActivo() {
         if (userId == null) return
 
@@ -114,7 +132,6 @@ class MascotaViewModel : ViewModel() {
                         p?.id = doc.id
                         p
                     }
-                    // Buscamos uno que NO esté finalizado
                     val enCurso = listaPaseos.firstOrNull { it.estado != "FINALIZADO" }
                     _paseoActivo.value = enCurso
                 } else {
@@ -156,11 +173,7 @@ class MascotaViewModel : ViewModel() {
             .addOnFailureListener { e -> onError(e.message ?: "Error al solicitar") }
     }
 
-
-    // --- MÉTODOS PARA GESTIONAR EL DIÁLOGO DE PAGO ---
-
     fun onNumeroTarjetaChange(numero: String) {
-        // Permitir solo números y un máximo de 16 dígitos
         if (numero.all { it.isDigit() } && numero.length <= 16) {
             _numeroTarjetaInput.value = numero
         }
